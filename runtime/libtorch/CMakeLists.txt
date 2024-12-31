@@ -11,8 +11,8 @@ option(GRPC "whether to build with gRPC" OFF)
 #                     which is a very big library
 option(WEBSOCKET "whether to build with websocket" ON)
 option(HTTP "whether to build with http" OFF)
-option(TORCH "whether to build with Torch" ON)
-option(ONNX "whether to build with ONNX" OFF)
+option(TORCH "whether to build with Torch" OFF)
+option(ONNX "whether to build with ONNX" ON)
 option(GPU "whether to build with GPU" OFF)
 
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -g")

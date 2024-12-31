@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
 
   wenet::WavReader wav_reader(FLAGS_wav_path);
   int sample_rate = client.sample_rate_;
-  CHECK_EQ(wav_reader.sample_rate(), sample_rate);
+  VLOG(2) << "sample rate: " << sample_rate;
   const int num_samples = wav_reader.num_samples();
   // Send data every 0.5 second
   const float interval = 0.5;

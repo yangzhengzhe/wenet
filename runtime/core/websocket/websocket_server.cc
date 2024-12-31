@@ -91,7 +91,7 @@ void ConnectionHandler::OnSpeechData(const beast::flat_buffer& buffer) {
   CHECK(feature_pipeline_ != nullptr);
   CHECK(decoder_ != nullptr);
   const auto* pcm_data = static_cast<const int16_t*>(buffer.data().data());
-  feature_pipeline_->AcceptWaveform(pcm_data, num_samples);
+  feature_pipeline_->AcceptWaveform(pcm_data, num_samples, 8000);
 }
 
 std::string ConnectionHandler::SerializeResult(bool finish) {

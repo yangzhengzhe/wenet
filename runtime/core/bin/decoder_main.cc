@@ -45,13 +45,24 @@ int g_total_decode_time = 0;
 void Decode(std::pair<std::string, std::string> wav, bool warmup = false) {
   wenet::WavReader wav_reader(wav.second);
   int num_samples = wav_reader.num_samples();
-  CHECK_EQ(wav_reader.sample_rate(), FLAGS_sample_rate);
+  // CHECK_EQ(wav_reader.sample_rate(), FLAGS_sample_rate);
+
+  std::vector<int16_t> int16_data(num_samples);
+  const float* float_data = wav_reader.data();
+  std::transform(float_data, float_data + num_samples, int16_data.begin(),
+                 [](float sample) {
+                   // 将 float 转换为 int16_t，注意可能需要根据具体情况调整比例
+                   return static_cast<int16_t>(sample);
+                 });
 
   auto feature_pipeline =
       std::make_shared<wenet::FeaturePipeline>(*g_feature_config);
-  feature_pipeline->AcceptWaveform(wav_reader.data(), num_samples);
+  feature_pipeline->AcceptWaveform(int16_data.data(), num_samples,
+                                   wav_reader.sample_rate());
   feature_pipeline->set_input_finished();
+  LOG(INFO) << "Input wav Infos:";
   LOG(INFO) << "num frames " << feature_pipeline->num_frames();
+  LOG(INFO) << "sample rate " << wav_reader.sample_rate();
 
   wenet::AsrDecoder decoder(feature_pipeline, g_decode_resource,
                             *g_decode_config);
