@@ -16,12 +16,14 @@
 #define FRONTEND_FEATURE_PIPELINE_H_
 
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <vector>
 
 #include "frontend/fbank.h"
+#include "frontend/resample.h"
 #include "utils/blocking_queue.h"
 #include "utils/log.h"
 
@@ -102,6 +104,8 @@ class FeaturePipeline {
   // The feature extraction is done in AcceptWaveform().
   void AcceptWaveform(const float* pcm, const int size);
   void AcceptWaveform(const int16_t* pcm, const int size);
+  void AcceptWaveform(const int16_t* pcm, const int size,
+                      const int sample_rate);
 
   // Current extracted frames number.
   int num_frames() const { return num_frames_; }
@@ -135,9 +139,12 @@ class FeaturePipeline {
   int NumQueuedFrames() const { return feature_queue_.Size(); }
 
  private:
+  void MaybeCreateResampler(float sample_rate);
+
   const FeaturePipelineConfig& config_;
   int feature_dim_;
   Fbank fbank_;
+  std::unique_ptr<wenet::LinearResample> resampler_;
 
   BlockingQueue<std::vector<float>> feature_queue_;
   int num_frames_;

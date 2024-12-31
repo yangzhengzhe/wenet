@@ -55,6 +55,34 @@ void FeaturePipeline::AcceptWaveform(const int16_t* pcm, const int size) {
   delete[] float_pcm;
 }
 
+void FeaturePipeline::AcceptWaveform(const int16_t* pcm, const int size,
+                                     const int sample_rate) {
+  std::vector<float> ori_wav(size);
+  std::transform(pcm, pcm + size, ori_wav.begin(),
+                 [](int16_t sample) { return static_cast<float>(sample); });
+
+  const float* wav = nullptr;
+  int wav_size = 0;
+  std::vector<float> resampled_wav;
+
+  MaybeCreateResampler(static_cast<float>(sample_rate));
+  if (resampler_ == nullptr) {
+    wav = ori_wav.data();
+    wav_size = ori_wav.size();
+  } else {
+    resampler_->Resample(ori_wav, false, &resampled_wav);
+    if (!resampled_wav.empty()) {
+      wav = resampled_wav.data();
+      wav_size = resampled_wav.size();
+    } else {
+      throw std::runtime_error("Resampling failed: resampled_wav is empty.");
+    }
+  }
+  std::cout << "Output wav info:" << std::endl;
+  std::cout << "in size:" << size << " out size:" << wav_size << std::endl;
+  this->AcceptWaveform(wav, wav_size);
+}
+
 void FeaturePipeline::set_input_finished() {
   CHECK(!input_finished_);
   {
@@ -120,10 +148,24 @@ bool FeaturePipeline::Read(int num_frames,
 }
 
 void FeaturePipeline::Reset() {
+  if (resampler_ != nullptr) resampler_->Reset();
   input_finished_ = false;
   num_frames_ = 0;
   remained_wav_.clear();
   feature_queue_.Clear();
+}
+
+void FeaturePipeline::MaybeCreateResampler(float sample_rate) {
+  float expected_sample_rate = config_.sample_rate;
+  if (resampler_ != nullptr) {
+    CHECK_EQ(resampler_->GetInputSamplingRate(), sample_rate);
+    CHECK_EQ(resampler_->GetOutputSamplingRate(), expected_sample_rate);
+  } else if (sample_rate != expected_sample_rate) {
+    resampler_.reset(
+        new LinearResample(sample_rate, expected_sample_rate, 3800, 64));
+    LOG(INFO) << "Convert sample rate from: " << sample_rate << " to "
+              << expected_sample_rate;
+  }
 }
 
 }  // namespace wenet
