@@ -6,7 +6,7 @@
 
 namespace wenet {
 
-float VecVec(const vector<float>& ra, const vector<float>& rb) {
+float VecVec(const std::vector<float>& ra, const std::vector<float>& rb) {
   int adim = ra.size();
   assert(adim == rb.size());
   const float* a_data = &ra[0];
@@ -110,8 +110,8 @@ void LinearResample::GetIndexes(int64 samp_out, int64* first_samp_in,
       first_index_[*samp_out_wrapped] + unit_index * input_samples_in_unit_;
 }
 
-void LinearResample::Resample(const vector<float>& input, bool flush,
-                              vector<float>* output) {
+void LinearResample::Resample(const std::vector<float>& input, bool flush,
+                              std::vector<float>* output) {
   int32 input_dim = input.size();
   int64 tot_input_samp = input_sample_offset_ + input_dim,
         tot_output_samp = GetNumOutputSamples(tot_input_samp, flush);
@@ -125,14 +125,14 @@ void LinearResample::Resample(const vector<float>& input, bool flush,
     int64 first_samp_in;
     int32 samp_out_wrapped;
     GetIndexes(samp_out, &first_samp_in, &samp_out_wrapped);
-    const vector<float>& weights = weights_[samp_out_wrapped];
+    const std::vector<float>& weights = weights_[samp_out_wrapped];
     int32 first_input_index =
         static_cast<int32>(first_samp_in - input_sample_offset_);
     float this_output;
     if (first_input_index >= 0 &&
         first_input_index + weights.size() <= input_dim) {
       // Subvector<float> input_part(input, first_input_index, weights.size());
-      vector<float> input_part(
+      std::vector<float> input_part(
           input.begin() + first_input_index,
           input.begin() + first_input_index + weights.size());
       this_output = VecVec(input_part, weights);
@@ -164,8 +164,8 @@ void LinearResample::Resample(const vector<float>& input, bool flush,
   }
 }
 
-void LinearResample::SetRemainder(const vector<float>& input) {
-  vector<float> old_remainder(input_remainder_);
+void LinearResample::SetRemainder(const std::vector<float>& input) {
+  std::vector<float> old_remainder(input_remainder_);
   int32 max_remainder_needed =
       ceil(samp_rate_in_ * num_zeros_ / filter_cutoff_);
   input_remainder_.resize(max_remainder_needed);

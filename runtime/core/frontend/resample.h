@@ -27,7 +27,7 @@ class LinearResample {
   LinearResample(int32 samp_rate_in_hz, int32 samp_rate_out_hz,
                  float filter_cutoff_hz, int32 num_zeros);
 
-  void Resample(const vector<float>& input, bool flush, vector<float>* output);
+  void Resample(const std::vector<float>& input, bool flush, std::vector<float>* output);
 
   void Reset();
 
@@ -40,7 +40,7 @@ class LinearResample {
   inline void GetIndexes(int64 samp_out, int64* first_samp_in,
                          int32* samp_out_wrapped) const;
 
-  void SetRemainder(const vector<float>& input);
+  void SetRemainder(const std::vector<float>& input);
 
   void SetIndexesAndWeights();
 
@@ -56,11 +56,11 @@ class LinearResample {
 
   std::vector<int32> first_index_;
 
-  std::vector<vector<float> > weights_;
+  std::vector<std::vector<float> > weights_;
 
   int64 input_sample_offset_;      ///< The number of input samples we have
   int64 output_sample_offset_;     ///< The number of samples we have already
-  vector<float> input_remainder_;  ///< A small trailing part of the
+  std::vector<float> input_remainder_;  ///< A small trailing part of the
 };
 
 }  // namespace wenet
