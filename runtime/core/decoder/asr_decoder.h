@@ -25,6 +25,7 @@
 #include "fst/fstlib.h"
 #include "fst/symbol-table.h"
 
+#include "EPD/EPD_Interface.h"
 #include "decoder/asr_model.h"
 #include "decoder/context_graph.h"
 #include "decoder/ctc_endpoint.h"
@@ -55,6 +56,8 @@ struct DecodeOptions {
   float ctc_weight = 0.5;
   float rescoring_weight = 1.0;
   float reverse_weight = 0.0;
+  int epd_sample_rate = 16000;
+  std::string epd_config_path = "conf/EPD.conf";
   CtcEndpointConfig ctc_endpoint_config;
   CtcPrefixBeamSearchOptions ctc_prefix_search_opts;
   CtcWfstBeamSearchOptions ctc_wfst_search_opts;
@@ -155,9 +158,12 @@ class AsrDecoder {
 
   std::unique_ptr<SearchInterface> searcher_;
   std::unique_ptr<CtcEndpoint> ctc_endpointer_;
+  std::unique_ptr<EPD_Interface> epd_endpointer_;
 
   int num_frames_in_current_chunk_ = 0;
   std::vector<DecodeResult> result_;
+
+  std::vector<std::vector<float>> leftover_feats_ = {};
 
  public:
   WENET_DISALLOW_COPY_AND_ASSIGN(AsrDecoder);

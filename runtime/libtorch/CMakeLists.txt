@@ -56,6 +56,7 @@ add_subdirectory(post_processor)
 add_subdirectory(kaldi)  # kaldi: wfst based decoder
 add_subdirectory(decoder)
 add_subdirectory(api)
+add_subdirectory(EPD)
 
 # Optionally, you can build with websocket
 if(WEBSOCKET)

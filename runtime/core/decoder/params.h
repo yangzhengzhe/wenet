@@ -117,6 +117,12 @@ DEFINE_int32(language_type, 0,
              "0x01 = kIndoEuropean");
 DEFINE_bool(lowercase, true, "lowercase final result if needed");
 
+DEFINE_int32(expected_sample_rate, 16000,
+             "The actual sampling rate used for decoding is the resampled "
+             "sampling rate, which is the target sampling rate for resampling");
+DEFINE_string(epd_config_path, "conf/EPD.conf",
+              "The configuration file path of the EPD module");
+
 namespace wenet {
 
 FeatureType StringToFeatureType(const std::string& feat_type_str) {
@@ -132,6 +138,7 @@ std::shared_ptr<FeaturePipelineConfig> InitFeaturePipelineConfigFromFlags() {
   FeatureType feat_type = StringToFeatureType(FLAGS_feat_type);
   auto feature_config = std::make_shared<FeaturePipelineConfig>(
       FLAGS_num_bins, FLAGS_sample_rate, feat_type);
+  feature_config->expected_sample_rate = FLAGS_expected_sample_rate;
   return feature_config;
 }
 
@@ -158,6 +165,10 @@ std::shared_ptr<DecodeOptions> InitDecodeOptionsFromFlags() {
   decode_config->ctc_prefix_search_opts.blank = FLAGS_blank_id;
   decode_config->ctc_endpoint_config.blank = FLAGS_blank_id;
   decode_config->ctc_endpoint_config.blank_scale = FLAGS_blank_scale;
+
+  decode_config->epd_sample_rate = FLAGS_expected_sample_rate;
+  decode_config->epd_config_path = FLAGS_epd_config_path;
+
   return decode_config;
 }
 

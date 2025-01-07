@@ -28,7 +28,7 @@ FeaturePipeline::FeaturePipeline(const FeaturePipelineConfig& config)
              config.window_type, config.mel_type, config.norm_type),
       num_frames_(0),
       input_finished_(false) {}
-
+/*
 void FeaturePipeline::AcceptWaveform(const float* pcm, const int size) {
   std::vector<std::vector<float>> feats;
   std::vector<float> waves;
@@ -54,6 +54,65 @@ void FeaturePipeline::AcceptWaveform(const int16_t* pcm, const int size) {
   this->AcceptWaveform(float_pcm, size);
   delete[] float_pcm;
 }
+*/
+void FeaturePipeline::AcceptWaveform(const float* pcm, const int size) {
+  std::vector<std::vector<float>> feats;
+  std::vector<float> waves;
+
+  // 合并之前剩余的 PCM 数据和当前接收到的 PCM 数据
+  waves.insert(waves.end(), remained_wav_.begin(), remained_wav_.end());
+  waves.insert(waves.end(), pcm, pcm + size);
+
+  // 计算特征帧并返回特征帧数
+  int num_frames = fbank_.Compute(waves, &feats);
+
+  for (int i = 0; i < num_frames; ++i) {
+    // 存储每一帧的特征和对应的 PCM 数据
+    std::vector<FeatureWithPCM> feature_with_pcm_pair;
+    FeatureWithPCM feature_with_pcm;
+    feature_with_pcm.feature_data = feats[i];
+
+    // 提取 PCM 数据，保留或去掉重叠部分
+    int start_sample = i * config_.frame_shift;
+
+    if (config_.retain_overlap) {
+      // 保留重叠部分
+      int end_sample = start_sample + config_.frame_length;
+
+      if (end_sample <= waves.size()) {
+        feature_with_pcm.pcm_data.assign(waves.begin() + start_sample,
+                                         waves.begin() + end_sample);
+      } else {
+        feature_with_pcm.pcm_data.assign(waves.begin() + start_sample,
+                                         waves.end());
+      }
+    } else {
+      // 不保留重叠部分
+      int non_overlap_end_sample = start_sample + config_.frame_shift;
+
+      if (non_overlap_end_sample <= waves.size()) {
+        feature_with_pcm.pcm_data.assign(
+            waves.begin() + start_sample,
+            waves.begin() + non_overlap_end_sample);
+      } else {
+        feature_with_pcm.pcm_data.assign(waves.begin() + start_sample,
+                                         waves.end());
+      }
+    }
+
+    feature_with_pcm_pair.push_back(std::move(feature_with_pcm));
+    feature_queue_.Push(std::move(feature_with_pcm_pair));
+  }
+
+  // 更新残留的 PCM 数据
+  int left_samples = waves.size() - config_.frame_shift * num_frames;
+  remained_wav_.resize(left_samples);
+  std::copy(waves.begin() + config_.frame_shift * num_frames, waves.end(),
+            remained_wav_.begin());
+
+  // 通知输入数据未处理完
+  finish_condition_.notify_one();
+}
 
 void FeaturePipeline::AcceptWaveform(const int16_t* pcm, const int size,
                                      const int sample_rate) {
@@ -78,8 +137,6 @@ void FeaturePipeline::AcceptWaveform(const int16_t* pcm, const int size,
       throw std::runtime_error("Resampling failed: resampled_wav is empty.");
     }
   }
-  std::cout << "Output wav info:" << std::endl;
-  std::cout << "in size:" << size << " out size:" << wav_size << std::endl;
   this->AcceptWaveform(wav, wav_size);
 }
 
@@ -92,56 +149,83 @@ void FeaturePipeline::set_input_finished() {
   finish_condition_.notify_one();
 }
 
-bool FeaturePipeline::ReadOne(std::vector<float>* feat) {
+bool FeaturePipeline::ReadOne(std::vector<float>* feat,
+                              std::vector<float>* pcm) {
   if (!feature_queue_.Empty()) {
-    *feat = std::move(feature_queue_.Pop());
-    return true;
+    auto feature_with_pcm_list = std::move(feature_queue_.Pop());
+    if (!feature_with_pcm_list.empty()) {
+      *feat = std::move(feature_with_pcm_list.front().feature_data);
+      *pcm = std::move(feature_with_pcm_list.front().pcm_data);
+      return true;
+    }
+    return false;
   } else {
     std::unique_lock<std::mutex> lock(mutex_);
     while (!input_finished_) {
-      // This will release the lock and wait for notify_one()
-      // from AcceptWaveform() or set_input_finished()
       finish_condition_.wait(lock);
       if (!feature_queue_.Empty()) {
-        *feat = std::move(feature_queue_.Pop());
-        return true;
+        auto feature_with_pcm_list = std::move(feature_queue_.Pop());
+        if (!feature_with_pcm_list.empty()) {
+          *feat = std::move(feature_with_pcm_list.front().feature_data);
+          *pcm = std::move(feature_with_pcm_list.front().pcm_data);
+          return true;
+        }
       }
     }
     CHECK(input_finished_);
-    // Double check queue.empty, see issue#893 for detailed discussions.
     if (!feature_queue_.Empty()) {
-      *feat = std::move(feature_queue_.Pop());
-      return true;
-    } else {
-      return false;
+      auto feature_with_pcm_list = std::move(feature_queue_.Pop());
+      if (!feature_with_pcm_list.empty()) {
+        *feat = std::move(feature_with_pcm_list.front().feature_data);
+        *pcm = std::move(feature_with_pcm_list.front().pcm_data);
+        return true;
+      }
     }
+    return false;
   }
 }
 
 bool FeaturePipeline::Read(int num_frames,
-                           std::vector<std::vector<float>>* feats) {
+                           std::vector<std::vector<float>>* feats,
+                           std::vector<std::vector<float>>* pcms) {
   feats->clear();
+  pcms->clear();
+
   if (feature_queue_.Size() >= num_frames) {
-    *feats = std::move(feature_queue_.Pop(num_frames));
+    auto feature_with_pcm_list = std::move(feature_queue_.Pop(num_frames));
+    for (const auto& item : feature_with_pcm_list) {
+      feats->push_back(std::move(item.front().feature_data));
+      pcms->push_back(std::move(item.front().pcm_data));
+    }
     return true;
   } else {
     std::unique_lock<std::mutex> lock(mutex_);
     while (!input_finished_) {
-      // This will release the lock and wait for notify_one()
-      // from AcceptWaveform() or set_input_finished()
       finish_condition_.wait(lock);
       if (feature_queue_.Size() >= num_frames) {
-        *feats = std::move(feature_queue_.Pop(num_frames));
+        auto feature_with_pcm_list = std::move(feature_queue_.Pop(num_frames));
+        for (const auto& item : feature_with_pcm_list) {
+          feats->push_back(std::move(item.front().feature_data));
+          pcms->push_back(std::move(item.front().pcm_data));
+        }
         return true;
       }
     }
     CHECK(input_finished_);
-    // Double check queue.empty, see issue#893 for detailed discussions.
     if (feature_queue_.Size() >= num_frames) {
-      *feats = std::move(feature_queue_.Pop(num_frames));
+      auto feature_with_pcm_list = std::move(feature_queue_.Pop(num_frames));
+      for (const auto& item : feature_with_pcm_list) {
+        feats->push_back(std::move(item.front().feature_data));
+        pcms->push_back(std::move(item.front().pcm_data));
+      }
       return true;
     } else {
-      *feats = std::move(feature_queue_.Pop(feature_queue_.Size()));
+      auto feature_with_pcm_list =
+          std::move(feature_queue_.Pop(feature_queue_.Size()));
+      for (const auto& item : feature_with_pcm_list) {
+        feats->push_back(std::move(item.front().feature_data));
+        pcms->push_back(std::move(item.front().pcm_data));
+      }
       return false;
     }
   }
@@ -156,7 +240,7 @@ void FeaturePipeline::Reset() {
 }
 
 void FeaturePipeline::MaybeCreateResampler(float sample_rate) {
-  float expected_sample_rate = config_.sample_rate;
+  float expected_sample_rate = config_.expected_sample_rate;
   if (resampler_ != nullptr) {
     CHECK_EQ(resampler_->GetInputSamplingRate(), sample_rate);
     CHECK_EQ(resampler_->GetOutputSamplingRate(), expected_sample_rate);

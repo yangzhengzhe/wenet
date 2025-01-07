@@ -34,15 +34,23 @@ enum class FeatureType {
   kWhisper,
 };
 
+struct FeatureWithPCM {
+  std::vector<float> pcm_data;      // 对应的 PCM 数据
+  std::vector<float> feature_data;  // 对应的特征数据
+};
+
 struct FeaturePipelineConfig {
   int num_bins;
   int sample_rate;
+  int expected_sample_rate;
   int frame_length;
   int frame_shift;
   float low_freq;
   bool pre_emphasis;
   bool scale_input_to_unit;
+  bool retain_overlap;
   float log_floor;
+  int target_sample_rate;
   LogBase log_base;
   WindowType window_type;
   MelType mel_type;
@@ -54,6 +62,7 @@ struct FeaturePipelineConfig {
         sample_rate(sample_rate) {           // 16k sample rate
     frame_length = sample_rate / 1000 * 25;  // frame length 25ms
     frame_shift = sample_rate / 1000 * 10;   // frame shift 10ms
+    retain_overlap = false;
     if (feat_type == FeatureType::kKaldi) {
       low_freq = 20.0;
       pre_emphasis = true;
@@ -82,7 +91,8 @@ struct FeaturePipelineConfig {
               << " preemphasis " << pre_emphasis << " log_floor " << log_floor
               << " log_base " << int(log_base) << " window_type "
               << int(window_type) << " mel_type " << int(mel_type)
-              << " norm_type " << int(norm_type);
+              << " norm_type " << int(norm_type) << " target sample rate "
+              << target_sample_rate;
   }
 };
 
@@ -121,7 +131,7 @@ class FeaturePipeline {
   // Return True if a feature is read.
   // This function is a blocking method. It will block the thread when
   // there is no feature in feature_queue_ and the input is not finished.
-  bool ReadOne(std::vector<float>* feat);
+  bool ReadOne(std::vector<float>* feat, std::vector<float>* pcm);
 
   // Read #num_frames frame features.
   // Return False if less than #num_frames features are read and the
@@ -129,7 +139,8 @@ class FeaturePipeline {
   // Return True if #num_frames features are read.
   // This function is a blocking method when there is no feature
   // in feature_queue_ and the input is not finished.
-  bool Read(int num_frames, std::vector<std::vector<float>>* feats);
+  bool Read(int num_frames, std::vector<std::vector<float>>* feats,
+            std::vector<std::vector<float>>* pcms);
 
   void Reset();
   bool IsLastFrame(int frame) const {
@@ -146,7 +157,7 @@ class FeaturePipeline {
   Fbank fbank_;
   std::unique_ptr<wenet::LinearResample> resampler_;
 
-  BlockingQueue<std::vector<float>> feature_queue_;
+  BlockingQueue<std::vector<FeatureWithPCM>> feature_queue_;
   int num_frames_;
   bool input_finished_;
 

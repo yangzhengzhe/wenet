@@ -38,7 +38,9 @@ AsrDecoder::AsrDecoder(std::shared_ptr<FeaturePipeline> feature_pipeline,
       fst_(resource->fst),
       unit_table_(resource->unit_table),
       opts_(opts),
-      ctc_endpointer_(new CtcEndpoint(opts.ctc_endpoint_config)) {
+      ctc_endpointer_(new CtcEndpoint(opts.ctc_endpoint_config)),
+      epd_endpointer_(new EPD_Interface(opts.epd_sample_rate,
+                                        opts.epd_config_path.c_str())) {
   if (opts_.reverse_weight > 0) {
     // Check if model has a right to left decoder
     CHECK(model_->is_bidirectional_decoder());
@@ -51,6 +53,9 @@ AsrDecoder::AsrDecoder(std::shared_ptr<FeaturePipeline> feature_pipeline,
                                           resource->context_graph));
   }
   ctc_endpointer_->frame_shift_in_ms(frame_shift_in_ms());
+  // epd_endpointer_->SetParam("incompletetimeout", "100");
+  // epd_endpointer_->SetParam("sensitivity", "30");
+  epd_endpointer_->re_initEPD();
 }
 
 void AsrDecoder::Reset() {
@@ -62,6 +67,8 @@ void AsrDecoder::Reset() {
   searcher_->Reset();
   feature_pipeline_->Reset();
   ctc_endpointer_->Reset();
+  epd_endpointer_->re_initEPD();
+  leftover_feats_.clear();
 }
 
 void AsrDecoder::ResetContinuousDecoding() {
@@ -71,6 +78,7 @@ void AsrDecoder::ResetContinuousDecoding() {
   model_->Reset();
   searcher_->Reset();
   ctc_endpointer_->Reset();
+  epd_endpointer_->re_initEPD();
 }
 
 DecodeState AsrDecoder::Decode(bool block) {
@@ -89,17 +97,54 @@ DecodeState AsrDecoder::AdvanceDecoding(bool block) {
   model_->set_chunk_size(opts_.chunk_size);
   model_->set_num_left_chunks(opts_.num_left_chunks);
   int num_required_frames = model_->num_frames_for_chunk(start_);
+  int leftover_feats_size =
+      leftover_feats_.size();  // 上次截断后留下的特征帧长度
   std::vector<std::vector<float>> chunk_feats;
+  std::vector<std::vector<float>> chunk_pcm;
   // Return immediately if we do not want to block
   if (!block && !feature_pipeline_->input_finished() &&
       feature_pipeline_->NumQueuedFrames() < num_required_frames) {
     return DecodeState::kWaitFeats;
   }
   // If not okay, that means we reach the end of the input
-  if (!feature_pipeline_->Read(num_required_frames, &chunk_feats)) {
+  if (!feature_pipeline_->Read(num_required_frames, &chunk_feats, &chunk_pcm)) {
     state = DecodeState::kEndFeats;
   }
-
+  // 先检测是否存在语音端点，如果存在则对chunk_feats进行截断
+  int chunk_index = 0;
+  if (state != DecodeState::kEndFeats) {
+    for (auto pcm_float : chunk_pcm) {
+      int begin_flag = -1;
+      int end_flag = -1;
+      std::vector<short> pcm_short(pcm_float.size());
+      std::transform(pcm_float.begin(), pcm_float.end(), pcm_short.begin(),
+                     [](float f) { return static_cast<short>(f); });
+      int result = epd_endpointer_->doEPD(pcm_short.data(), pcm_short.size(),
+                                          &begin_flag, &end_flag);
+      if (end_flag > -1) {
+        state = DecodeState::kEndpoint;
+        epd_endpointer_->re_initEPD();
+        VLOG(1) << "Endpoint is detected at " << chunk_index << " in "
+                << chunk_feats.size() << ".";
+        break;  // 只需处理第一个端点即可
+      }
+      chunk_index += 1;
+    }
+  }
+  // 如果有未处理的特征帧，先将它们加入到chunk_feats头部
+  if (!leftover_feats_.empty()) {
+    chunk_feats.insert(chunk_feats.begin(), leftover_feats_.begin(),
+                       leftover_feats_.end());
+    leftover_feats_.clear();
+  }
+  // 截断chunk_feats并保留新的未处理的部分，留作下次使用
+  if (chunk_index > 0 && chunk_index < chunk_feats.size()) {
+    leftover_feats_.assign(
+        chunk_feats.begin() + chunk_index + leftover_feats_size,
+        chunk_feats.end());
+    // 对chunk_feats长度进行调整，新的长度等于上一次留存的长度+本次检测到断点的长度。
+    chunk_feats.resize(chunk_index + leftover_feats_size);
+  }
   num_frames_ += chunk_feats.size();
   VLOG(2) << "Required " << num_required_frames << " get "
           << chunk_feats.size();
@@ -120,13 +165,13 @@ DecodeState AsrDecoder::AdvanceDecoding(bool block) {
           << search_time << " ms";
   UpdateResult();
 
-  if (state != DecodeState::kEndFeats) {
+  // if (state != DecodeState::kEndFeats) {
+  if (false) {
     if (ctc_endpointer_->IsEndpoint(ctc_log_probs, DecodedSomething())) {
       VLOG(1) << "Endpoint is detected at " << num_frames_;
       state = DecodeState::kEndpoint;
     }
   }
-
   start_ = true;
   return state;
 }

@@ -19,7 +19,7 @@ endif()
 
 add_library(decoder STATIC ${decoder_srcs})
 target_link_libraries(decoder PUBLIC kaldi-decoder frontend
-                      post_processor utils)
+                      post_processor utils epd)
 
 if(ANDROID)
   target_link_libraries(decoder PUBLIC ${PYTORCH_LIBRARY} ${FBJNI_LIBRARY})
